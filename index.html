@@ -34,6 +34,26 @@
     cursor: pointer;
   }
 
+  /* Portrait / narrow viewports (phones, square-ish windows): fill the whole
+     screen instead of letterboxing to a thin 16:9 strip. Backgrounds use
+     object-fit:cover so they crop cleanly to any shape. */
+  @media (max-aspect-ratio: 16/9) {
+    #stage {
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh; /* dynamic height: accounts for mobile browser chrome */
+      max-width: none;
+      max-height: none;
+    }
+    .scene-bg {
+      left: 0; top: 0;
+      transform: none;
+      width: 100%; height: 100%;
+    }
+    /* Tall screens: center the invitation instead of pinning it low */
+    .scene-page { justify-content: center; }
+  }
+
   /* ---------- Scene layers ---------- */
   .scene-layer {
     position: absolute;
@@ -626,6 +646,37 @@
     :root { --bar: 6vh; --edge: 18px; }
     #hint { display: none; }
     #caption { bottom: calc(var(--bar) + 64px); }
+
+    /* --- Phone legibility: the desktop clamps bottom out too small --- */
+    .ent-role { font-size: 9px; }
+    .ent-slot  { font-size: 13px; }
+    .motif-body { font-size: 13px; }
+    .inv-verse { font-size: 12px; }
+
+    /* Motif card stacks vertically so the photo isn't squeezed into a sliver */
+    .motif-card { flex-direction: column; }
+    .motif-img-col {
+      width: 100%;
+      height: clamp(80px, 14vh, 140px);
+    }
+    .motif-img-col::after {
+      background: linear-gradient(180deg, transparent 55%, rgba(10,8,4,.65));
+    }
+    .motif-text-col {
+      border-left: none;
+      border-top: 1px solid rgba(201,168,106,.25);
+    }
+
+    /* iOS Safari auto-zooms into form fields smaller than 16px */
+    .rsvp-form input, .rsvp-form select { font-size: 16px; }
+
+    /* Slightly smaller arrows so they don't crowd a narrow card */
+    .arrow { width: 44px; height: 64px; }
+  }
+
+  /* Touch devices can't rely on hover to reveal the arrows */
+  @media (hover: none) {
+    #stage .arrow { opacity: .7; }
   }
 </style>
 </head>
@@ -1581,8 +1632,14 @@ function updateControls() {
    ============================================================ */
 let pointerDownX = 0, pointerDownY = 0, pointerDownT = 0, pointerActive = false;
 
+// Taps that start/end on real controls (RSVP button, form fields, arrows)
+// must not ALSO count as a scene-advance tap on the stage.
+function isInteractiveTarget(t) {
+  return !!(t && t.closest && t.closest('button, input, select, textarea, a'));
+}
+
 stage.addEventListener('pointerdown', (e) => {
-  if (!state.started) return;
+  if (!state.started || isInteractiveTarget(e.target)) return;
   pointerDownX = e.clientX;
   pointerDownY = e.clientY;
   pointerDownT = performance.now();
@@ -1591,6 +1648,7 @@ stage.addEventListener('pointerdown', (e) => {
 stage.addEventListener('pointerup', (e) => {
   if (!state.started || !pointerActive) return;
   pointerActive = false;
+  if (isInteractiveTarget(e.target)) return;
   const dt = performance.now() - pointerDownT;
   if (dt > 400) return; // treat long press as nothing
   const dx = e.clientX - pointerDownX;
