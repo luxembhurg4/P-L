@@ -1,0 +1,12 @@
+# Large media — not needed for the static site
+*.mp4
+*.zip
+*.mp3
+
+# System / editor cruft
+.DS_Store
+Thumbs.db
+server.log
+
+# Personal binaries
+start-server.bat

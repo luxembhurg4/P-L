@@ -1,0 +1,1781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scenes — A Journey</title>
+<style>
+  :root {
+    --bar: 9vh;
+    --edge: 42px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #f3ead8;
+  }
+
+  /* ---------- 16:9 stage ---------- */
+  #stage {
+    position: fixed;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 100vw;
+    height: calc(100vw * 9 / 16);
+    max-width: calc(100vh * 16 / 9);
+    max-height: 100vh;
+    overflow: hidden;
+    background: #000;
+    cursor: pointer;
+  }
+
+  /* ---------- Scene layers ---------- */
+  .scene-layer {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 1s ease;
+    will-change: opacity;
+  }
+  .scene-layer.active { opacity: 1; }
+
+  /* "Merge" — the cinematic blend used at every scene/transition seam.
+     The incoming layer dissolves in with a soft zoom (mergeIn). It's applied
+     to the target scene whenever a transition ends, to clips as they come in,
+     and to pure scene-to-scene fallbacks, so nothing ever hard-cuts. */
+  .merge-anim { animation: mergeIn .6s ease-out backwards; }
+  @keyframes mergeIn {
+    from { opacity: 0; transform: scale(1.06); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+
+  /* Full-bleed 1920x1080 image, center-cropped to fill 16:9 */
+  .scene-bg {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 1920px; height: 1080px;
+    transform: translate(-50%, -50%);
+    object-fit: cover;
+    pointer-events: none;
+  }
+
+  /* ---------- Click-to-start gate ---------- */
+  #gate {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    gap: 26px;
+    transition: opacity .8s ease;
+    cursor: pointer;
+  }
+  #gate.hidden { opacity: 0; pointer-events: none; }
+  #gate .mark {
+    color: #f3ead8;
+    font-size: 13px;
+    letter-spacing: .5em;
+    text-transform: uppercase;
+    text-indent: .5em;
+  }
+  #gate .sub {
+    color: rgba(243,234,216,.5);
+    font-size: 11px;
+    letter-spacing: .24em;
+    text-transform: uppercase;
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+
+  /* ---------- Cinematic letterbox bars ---------- */
+  .bar {
+    position: fixed;
+    left: 0; right: 0;
+    height: var(--bar);
+    background: #000;
+    z-index: 20;
+    pointer-events: none;
+  }
+  .bar.top { top: 0; }
+  .bar.bottom { bottom: 0; }
+
+  /* ---------- Vignette + film grain ---------- */
+  #vignette {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 120% 90% at 50% 50%, transparent 55%, rgba(0,0,0,.38) 100%);
+  }
+  #grain {
+    position: absolute;
+    inset: -100px;
+    z-index: 11;
+    pointer-events: none;
+    opacity: .05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+    animation: grainShift 0.9s steps(3) infinite;
+  }
+  @keyframes grainShift {
+    0%   { transform: translate(0, 0); }
+    33%  { transform: translate(-40px, 25px); }
+    66%  { transform: translate(30px, -35px); }
+    100% { transform: translate(0, 0); }
+  }
+
+  /* ---------- Transition video (full-screen, muted, no audio) ---------- */
+  #transition {
+    display: none; /* the pooled, script-created videos drive transitions now */
+    position: absolute;
+    inset: 0;
+    z-index: 13;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    pointer-events: none;
+  }
+  #transition.playing { opacity: 1; }
+
+  /* ============================================================
+     Wedding Invitation — Scene Overlays (Elaborate Edition)
+     ============================================================ */
+
+  /* Google Fonts — loaded inline via @import for offline-safe fallback */
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Cinzel:wght@400;600&family=EB+Garamond:ital@0;1&display=swap');
+
+  /* ---------- Base scene-page container ---------- */
+  .scene-page {
+    position: absolute;
+    inset: 0;
+    z-index: 12;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    padding: calc(var(--bar) + 4vh) 6vw calc(var(--bar) + 6vh);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .9s ease;
+  }
+  .scene-page.active { opacity: 1; }
+  .scene-page { pointer-events: none; }
+  .rsvp-box, .rsvp-btn, .rsvp-form, .rsvp-form * { pointer-events: auto; }
+
+  /* ---------- Decorative SVG ornament (used in all scenes) ---------- */
+  .inv-ornament {
+    display: block;
+    width: clamp(160px, 22vw, 280px);
+    height: auto;
+    margin-bottom: 6px;
+    opacity: .82;
+    filter: drop-shadow(0 2px 8px rgba(0,0,0,.5));
+  }
+
+  /* ---------- Gold divider line with diamond center ---------- */
+  .inv-divider {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    width: clamp(180px, 28vw, 340px);
+    margin: 8px auto;
+  }
+  .inv-divider::before,
+  .inv-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #c9a86a 40%, #c9a86a 60%, transparent);
+  }
+  .inv-divider .diamond {
+    width: 7px; height: 7px;
+    background: #c9a86a;
+    transform: rotate(45deg);
+    margin: 0 8px;
+    flex-shrink: 0;
+    box-shadow: 0 0 6px rgba(201,168,106,.6);
+  }
+
+  /* ---------- Invitation card panel (frosted glass) ---------- */
+  .inv-card {
+    background: linear-gradient(160deg, rgba(20,15,8,.72) 0%, rgba(10,8,4,.82) 100%);
+    border: 1px solid rgba(201,168,106,.38);
+    border-radius: 2px;
+    padding: clamp(14px,2.2vh,28px) clamp(18px,3vw,42px);
+    max-width: clamp(320px, 52vw, 680px);
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    backdrop-filter: blur(4px);
+    box-shadow:
+      0 0 0 1px rgba(201,168,106,.12),
+      inset 0 0 40px rgba(0,0,0,.3),
+      0 8px 40px rgba(0,0,0,.55);
+    position: relative;
+  }
+  /* Corner flourish marks */
+  .inv-card::before,
+  .inv-card::after {
+    content: '';
+    position: absolute;
+    width: 18px; height: 18px;
+    border-color: rgba(201,168,106,.55);
+    border-style: solid;
+  }
+  .inv-card::before {
+    top: 6px; left: 6px;
+    border-width: 1px 0 0 1px;
+  }
+  .inv-card::after {
+    bottom: 6px; right: 6px;
+    border-width: 0 1px 1px 0;
+  }
+
+  /* ---------- Typography ---------- */
+  .inv-eyebrow {
+    font-family: 'Cinzel', 'Trajan Pro', Georgia, serif;
+    font-size: clamp(8px, .85vw, 11px);
+    font-weight: 400;
+    letter-spacing: .45em;
+    text-transform: uppercase;
+    text-indent: .45em;
+    color: #c9a86a;
+    text-shadow: 0 1px 8px rgba(0,0,0,.7);
+    text-align: center;
+  }
+  .inv-names {
+    font-family: 'Cormorant Garamond', 'EB Garamond', Georgia, serif;
+    font-size: clamp(32px, 5.5vw, 72px);
+    font-weight: 300;
+    font-style: italic;
+    letter-spacing: .04em;
+    color: #f3ead8;
+    text-align: center;
+    line-height: 1.1;
+    text-shadow: 0 2px 24px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.6);
+  }
+  .inv-names .ampersand {
+    font-size: 1.25em;
+    color: #c9a86a;
+    font-style: italic;
+    display: inline-block;
+    margin: 0 .12em;
+  }
+  .inv-subtitle {
+    font-family: 'Cinzel', Georgia, serif;
+    font-size: clamp(9px, .95vw, 13px);
+    font-weight: 400;
+    letter-spacing: .32em;
+    text-transform: uppercase;
+    text-indent: .32em;
+    color: rgba(243,234,216,.75);
+    text-align: center;
+    text-shadow: 0 1px 8px rgba(0,0,0,.7);
+  }
+  .inv-verse {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-size: clamp(10px, 1.05vw, 14px);
+    font-style: italic;
+    font-weight: 300;
+    letter-spacing: .06em;
+    color: rgba(243,234,216,.65);
+    text-align: center;
+    line-height: 1.6;
+    text-shadow: 0 1px 8px rgba(0,0,0,.7);
+    max-width: 420px;
+  }
+  .inv-detail {
+    font-family: 'Cinzel', Georgia, serif;
+    font-size: clamp(9px, .9vw, 12px);
+    font-weight: 400;
+    letter-spacing: .28em;
+    text-transform: uppercase;
+    text-indent: .28em;
+    color: rgba(243,234,216,.55);
+    text-align: center;
+    text-shadow: 0 1px 6px rgba(0,0,0,.7);
+    border: 1px solid rgba(201,168,106,.25);
+    padding: 6px 14px;
+    margin-top: 4px;
+  }
+
+  /* ---------- Entourage (scene 2) ---------- */
+  .entourage-wrap {
+    max-width: clamp(320px, 60vw, 760px);
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .entourage {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 20px;
+  }
+  .entourage-col {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .ent-group {
+    background: rgba(15,11,6,.5);
+    border-left: 2px solid rgba(201,168,106,.45);
+    padding: 5px 10px 5px 10px;
+    backdrop-filter: blur(2px);
+  }
+  .ent-role {
+    font-family: 'Cinzel', Georgia, serif;
+    font-size: clamp(7px, .75vw, 10px);
+    font-weight: 600;
+    letter-spacing: .3em;
+    text-transform: uppercase;
+    color: #c9a86a;
+    text-shadow: 0 1px 5px rgba(0,0,0,.6);
+  }
+  .ent-slot {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-size: clamp(10px, 1vw, 13px);
+    font-style: italic;
+    letter-spacing: .06em;
+    color: rgba(243,234,216,.9);
+    text-shadow: 0 1px 5px rgba(0,0,0,.6);
+    line-height: 1.4;
+  }
+
+  /* ---------- Attire & Motif (scene 3) ---------- */
+  .motif-card {
+    max-width: clamp(320px, 58vw, 740px);
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0;
+    background: linear-gradient(135deg, rgba(20,15,8,.75), rgba(10,8,4,.85));
+    border: 1px solid rgba(201,168,106,.4);
+    border-radius: 2px;
+    overflow: hidden;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 8px 40px rgba(0,0,0,.55);
+  }
+  .motif-img-col {
+    flex-shrink: 0;
+    width: clamp(90px, 12vw, 150px);
+    position: relative;
+  }
+  .motif-img-col img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+    filter: sepia(.15) brightness(.92);
+  }
+  .motif-img-col::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 60%, rgba(10,8,4,.6));
+  }
+  .motif-text-col {
+    flex: 1;
+    padding: clamp(12px,1.8vh,22px) clamp(14px,2vw,26px);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-left: 1px solid rgba(201,168,106,.25);
+  }
+  .motif-heading {
+    font-family: 'Cinzel', Georgia, serif;
+    font-size: clamp(8px, .8vw, 11px);
+    font-weight: 600;
+    letter-spacing: .38em;
+    text-transform: uppercase;
+    color: #c9a86a;
+    text-shadow: 0 1px 6px rgba(0,0,0,.6);
+  }
+  .motif-body {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-size: clamp(11px, 1.1vw, 15px);
+    font-style: italic;
+    font-weight: 300;
+    line-height: 1.6;
+    color: rgba(243,234,216,.88);
+    text-shadow: 0 1px 6px rgba(0,0,0,.5);
+  }
+  .motif-body strong {
+    font-style: normal;
+    font-weight: 600;
+    color: #e8d9b0;
+  }
+  .swatches {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .swatches .sw {
+    display: flex; flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .swatches .sw i {
+    width: clamp(18px,2vw,26px); height: clamp(18px,2vw,26px);
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.3);
+    box-shadow: 0 2px 6px rgba(0,0,0,.4);
+  }
+  .swatches .sw span {
+    font-family: 'Cinzel', Georgia, serif;
+    font-size: clamp(7px, .65vw, 9px);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: rgba(243,234,216,.7);
+    text-shadow: 0 1px 5px rgba(0,0,0,.6);
+  }
+
+  /* ---------- RSVP (scene 4) ---------- */
+  .rsvp-box {
+    max-width: clamp(300px, 48vw, 600px);
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .rsvp-btn {
+    padding: clamp(10px,1.4vh,16px) clamp(28px,4vw,52px);
+    background: linear-gradient(180deg, #e0c87e 0%, #c9a86a 50%, #a87c42 100%);
+    color: #1a1108;
+    font-family: 'Cinzel', Georgia, serif;
+    font-size: clamp(10px, 1.1vw, 14px);
+    font-weight: 600;
+    letter-spacing: .38em;
+    text-transform: uppercase;
+    text-indent: .38em;
+    border: 1px solid rgba(224,200,126,.6);
+    border-radius: 1px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.2);
+    cursor: pointer;
+    transition: transform .2s, box-shadow .2s, filter .2s;
+    position: relative;
+  }
+  .rsvp-btn::before,
+  .rsvp-btn::after {
+    content: '✦';
+    position: absolute;
+    top: 50%; transform: translateY(-50%);
+    font-size: .7em;
+    color: rgba(26,17,8,.6);
+  }
+  .rsvp-btn::before { left: 12px; }
+  .rsvp-btn::after  { right: 12px; }
+  .rsvp-btn:hover { transform: translateY(-2px); filter: brightness(1.1); box-shadow: 0 8px 28px rgba(0,0,0,.55); }
+  .rsvp-form {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+    background: linear-gradient(160deg, rgba(20,15,8,.78), rgba(10,8,4,.88));
+    border: 1px solid rgba(201,168,106,.45);
+    border-radius: 2px;
+    padding: clamp(14px,2vh,22px) clamp(16px,2.5vw,28px);
+    backdrop-filter: blur(4px);
+    box-shadow: 0 8px 36px rgba(0,0,0,.5);
+  }
+  .rsvp-form.open { display: flex; }
+  .rsvp-form label {
+    font-family: 'Cinzel', Georgia, serif;
+    font-size: clamp(8px, .75vw, 10px);
+    font-weight: 600;
+    letter-spacing: .28em;
+    text-transform: uppercase;
+    color: #c9a86a;
+    text-shadow: 0 1px 5px rgba(0,0,0,.6);
+  }
+  .rsvp-form input, .rsvp-form select {
+    background: rgba(30,22,12,.65);
+    border: 1px solid rgba(201,168,106,.4);
+    border-radius: 1px;
+    color: #f3ead8;
+    padding: 8px 12px;
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-size: clamp(12px, 1.1vw, 15px);
+    font-style: italic;
+  }
+  .rsvp-form .submit {
+    padding: 10px 26px;
+    background: linear-gradient(180deg, #e0c87e, #a87c42);
+    color: #1a1108;
+    border: 1px solid rgba(224,200,126,.6);
+    border-radius: 1px;
+    font-family: 'Cinzel', Georgia, serif;
+    font-size: clamp(9px, .9vw, 12px);
+    font-weight: 600;
+    letter-spacing: .28em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: filter .2s;
+  }
+  .rsvp-form .submit:hover { filter: brightness(1.1); }
+  .rsvp-form .msg {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-size: clamp(11px, 1vw, 13px);
+    font-style: italic;
+    line-height: 1.5;
+    color: rgba(232,217,176,.75);
+    text-align: center;
+  }
+
+  /* Hide the old shared caption entirely (scene pages own the text now) */
+  #caption { display: none; }
+  #captionTitle, #captionSub { display: none; }
+
+  /* ---------- Edge arrows ---------- */
+  .arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 15;
+    width: 52px; height: 76px;
+    background: none; border: none;
+    cursor: pointer;
+    color: rgba(255,255,255,.5);
+    transition: color .3s, opacity .4s;
+    opacity: 0;
+  }
+  #stage:hover .arrow { opacity: 1; }
+  .arrow:hover { color: #fff; }
+  .arrow svg { width: 100%; height: 100%; display: block; }
+  #arrowLeft  { left: calc(var(--edge) / 2.2); }
+  #arrowRight { right: calc(var(--edge) / 2.2); }
+  .arrow.disabled { opacity: 0 !important; pointer-events: none; }
+
+  /* ---------- Scene counter ---------- */
+  #counter {
+    position: absolute;
+    top: calc(var(--bar) + 26px);
+    right: calc(var(--edge) + 4px);
+    z-index: 14;
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 12px;
+    letter-spacing: .3em;
+    color: rgba(255,255,255,.55);
+    pointer-events: none;
+  }
+
+  /* ---------- Scroll hint ---------- */
+  #hint {
+    position: absolute;
+    left: calc(var(--edge) + 4px);
+    top: calc(var(--bar) + 26px);
+    z-index: 14;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 11px;
+    letter-spacing: .24em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.45);
+    pointer-events: none;
+    transition: opacity 1.2s ease;
+  }
+  #hint svg { width: 14px; height: 20px; opacity: .7; animation: wheelPulse 1.8s ease-in-out infinite; }
+  @keyframes wheelPulse {
+    0%, 100% { transform: translateY(0); opacity: .5; }
+    50%      { transform: translateY(4px); opacity: 1; }
+  }
+  #hint.fade { opacity: 0; }
+
+  /* ---------- Transition countdown ring ---------- */
+  #tcount {
+    position: absolute;
+    top: calc(var(--bar) + 26px);
+    left: calc(var(--edge) + 4px);
+    z-index: 14;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 11px;
+    letter-spacing: .24em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.55);
+    pointer-events: none;
+  }
+  #tcount .ring {
+    width: 26px; height: 26px;
+    border: 1px solid rgba(255,255,255,.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 640px) {
+    :root { --bar: 6vh; --edge: 18px; }
+    #hint { display: none; }
+    #caption { bottom: calc(var(--bar) + 64px); }
+  }
+</style>
+</head>
+<body>
+
+<!-- Click-to-start gate (required for video autoplay) -->
+<div id="gate" role="button" tabindex="0" aria-label="Start experience">
+  <div class="mark">A Journey</div>
+  <div class="sub">Click to begin</div>
+</div>
+
+<!-- Stage -->
+<div id="stage">
+  <!-- Scene background images (4 scenes, 1920x1080 canvas) -->
+  <div class="scene-layer active" data-scene="0">
+    <img class="scene-bg" data-src="Assets/Scene1.jpg" alt="Scene 1">
+  </div>
+  <div class="scene-layer" data-scene="1">
+    <img class="scene-bg" data-src="Assets/Scene2.jpg" alt="Scene 2">
+  </div>
+  <div class="scene-layer" data-scene="2">
+    <img class="scene-bg" data-src="Assets/Scene3.jpeg" alt="Scene 3">
+  </div>
+  <div class="scene-layer" data-scene="3">
+    <img class="scene-bg" data-src="Assets/Scene4.jpg" alt="Scene 4">
+  </div>
+
+  <!-- Transition video (muted, no audio) -->
+  <video id="transition" playsinline muted preload="auto"></video>
+
+  <!-- Per-scene invitation overlays (unique to each scene) -->
+
+  <!-- ═══════════════════════════════════════════════════════
+       SCENE 1 — Invitation Cover
+       ═══════════════════════════════════════════════════════ -->
+  <div class="scene-page active" data-scene="0">
+    <!-- Decorative floral SVG ornament -->
+    <svg class="inv-ornament" viewBox="0 0 320 60" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <!-- Left branch -->
+      <path d="M10 30 Q40 10 80 28" stroke="#c9a86a" stroke-width="1" fill="none" opacity=".7"/>
+      <path d="M20 30 Q35 18 55 26" stroke="#c9a86a" stroke-width=".7" fill="none" opacity=".5"/>
+      <circle cx="10" cy="30" r="2.5" fill="#c9a86a" opacity=".6"/>
+      <circle cx="30" cy="18" r="1.8" fill="#c9a86a" opacity=".5"/>
+      <circle cx="55" cy="22" r="2" fill="#c9a86a" opacity=".55"/>
+      <circle cx="80" cy="28" r="1.5" fill="#c9a86a" opacity=".5"/>
+      <!-- Center motif -->
+      <path d="M130 30 L140 20 L150 30 L140 40 Z" stroke="#c9a86a" stroke-width=".8" fill="rgba(201,168,106,.12)" opacity=".8"/>
+      <path d="M150 30 L160 20 L170 30 L160 40 Z" stroke="#c9a86a" stroke-width=".8" fill="rgba(201,168,106,.12)" opacity=".8"/>
+      <circle cx="160" cy="30" r="3.5" fill="#c9a86a" opacity=".55"/>
+      <line x1="100" y1="30" x2="128" y2="30" stroke="#c9a86a" stroke-width=".8" opacity=".6"/>
+      <line x1="172" y1="30" x2="220" y2="30" stroke="#c9a86a" stroke-width=".8" opacity=".6"/>
+      <!-- Right branch (mirror) -->
+      <path d="M310 30 Q280 10 240 28" stroke="#c9a86a" stroke-width="1" fill="none" opacity=".7"/>
+      <path d="M300 30 Q285 18 265 26" stroke="#c9a86a" stroke-width=".7" fill="none" opacity=".5"/>
+      <circle cx="310" cy="30" r="2.5" fill="#c9a86a" opacity=".6"/>
+      <circle cx="290" cy="18" r="1.8" fill="#c9a86a" opacity=".5"/>
+      <circle cx="265" cy="22" r="2" fill="#c9a86a" opacity=".55"/>
+      <circle cx="240" cy="28" r="1.5" fill="#c9a86a" opacity=".5"/>
+    </svg>
+
+    <div class="inv-card">
+      <div class="inv-eyebrow">Together with their families</div>
+      <div class="inv-divider"><span class="diamond"></span></div>
+      <div class="inv-names">Prince <span class="ampersand">&amp;</span> Lyde</div>
+      <div class="inv-divider"><span class="diamond"></span></div>
+      <div class="inv-subtitle">Osio &ndash; Añasco Nuptials</div>
+      <div class="inv-verse">
+        &ldquo;Two souls, one heart — bound by love, blessed by grace,<br>
+        united before God and those they hold dear.&rdquo;
+      </div>
+      <div class="inv-divider"><span class="diamond"></span></div>
+      <div class="inv-detail">[ Saturday, 00 Month 0000 ]</div>
+      <div class="inv-detail">[ Venue Name &mdash; City, Country ]</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SCENE 2 — The Entourage
+       ═══════════════════════════════════════════════════════ -->
+  <div class="scene-page" data-scene="1">
+    <svg class="inv-ornament" viewBox="0 0 320 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <line x1="0" y1="20" x2="130" y2="20" stroke="#c9a86a" stroke-width=".7" opacity=".5"/>
+      <path d="M140 20 L148 12 L156 20 L148 28 Z" stroke="#c9a86a" stroke-width=".8" fill="rgba(201,168,106,.15)"/>
+      <path d="M156 20 L164 12 L172 20 L164 28 Z" stroke="#c9a86a" stroke-width=".8" fill="rgba(201,168,106,.15)"/>
+      <circle cx="160" cy="20" r="3" fill="#c9a86a" opacity=".5"/>
+      <line x1="172" y1="20" x2="320" y2="20" stroke="#c9a86a" stroke-width=".7" opacity=".5"/>
+    </svg>
+
+    <div class="inv-card">
+      <div class="inv-eyebrow">The Wedding Party</div>
+      <div class="inv-divider"><span class="diamond"></span></div>
+      <div class="inv-names" style="font-size:clamp(20px,3vw,38px);">The Entourage</div>
+      <div class="inv-divider"><span class="diamond"></span></div>
+
+      <div class="entourage">
+        <!-- Left column -->
+        <div class="entourage-col">
+          <div class="ent-group">
+            <div class="ent-role">Parents of the Groom</div>
+            <div class="ent-slot">[ Name ] &amp; [ Name ]</div>
+          </div>
+          <div class="ent-group">
+            <div class="ent-role">Principal Sponsors</div>
+            <div class="ent-slot">[ Name ] &amp; [ Name ]<br>[ Name ] &amp; [ Name ]</div>
+          </div>
+          <div class="ent-group">
+            <div class="ent-role">Groomsmen</div>
+            <div class="ent-slot">[ Name ] &bull; [ Name ]<br>[ Name ] &bull; [ Name ]</div>
+          </div>
+          <div class="ent-group">
+            <div class="ent-role">Ring &amp; Coin Bearers</div>
+            <div class="ent-slot">[ Name ] &bull; [ Name ]</div>
+          </div>
+        </div>
+        <!-- Right column -->
+        <div class="entourage-col">
+          <div class="ent-group">
+            <div class="ent-role">Parents of the Bride</div>
+            <div class="ent-slot">[ Name ] &amp; [ Name ]</div>
+          </div>
+          <div class="ent-group">
+            <div class="ent-role">Secondary Sponsors</div>
+            <div class="ent-slot">[ Name ] &amp; [ Name ]<br>[ Name ] &amp; [ Name ]</div>
+          </div>
+          <div class="ent-group">
+            <div class="ent-role">Bridesmaids</div>
+            <div class="ent-slot">[ Name ] &bull; [ Name ]<br>[ Name ] &bull; [ Name ]</div>
+          </div>
+          <div class="ent-group">
+            <div class="ent-role">Liturgical &amp; Offertory</div>
+            <div class="ent-slot">[ Name ] &bull; [ Name ]</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SCENE 3 — Attire & Motif
+       ═══════════════════════════════════════════════════════ -->
+  <div class="scene-page" data-scene="2">
+    <svg class="inv-ornament" viewBox="0 0 320 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <line x1="0" y1="20" x2="130" y2="20" stroke="#c9a86a" stroke-width=".7" opacity=".5"/>
+      <path d="M140 20 L148 12 L156 20 L148 28 Z" stroke="#c9a86a" stroke-width=".8" fill="rgba(201,168,106,.15)"/>
+      <path d="M156 20 L164 12 L172 20 L164 28 Z" stroke="#c9a86a" stroke-width=".8" fill="rgba(201,168,106,.15)"/>
+      <circle cx="160" cy="20" r="3" fill="#c9a86a" opacity=".5"/>
+      <line x1="172" y1="20" x2="320" y2="20" stroke="#c9a86a" stroke-width=".7" opacity=".5"/>
+    </svg>
+
+    <div class="inv-card">
+      <div class="inv-eyebrow">Dress Code &amp; Colour Palette</div>
+      <div class="inv-divider"><span class="diamond"></span></div>
+      <div class="inv-names" style="font-size:clamp(20px,3vw,38px);">Attire &amp; Motif</div>
+      <div class="inv-divider"><span class="diamond"></span></div>
+
+      <div class="motif-card">
+        <div class="motif-img-col">
+          <img src="motif.jpg" alt="Wedding motif">
+        </div>
+        <div class="motif-text-col">
+          <div class="motif-heading">Our Palette</div>
+          <div class="motif-body">
+            Our celebration is adorned in a <strong>champagne &amp; ivory</strong> reverie —
+            a luminous tapestry of <strong>soft beige</strong> and <strong>blush warmth</strong>,
+            kissed by <strong>muted gold</strong>, <strong>taupe</strong>, and
+            <strong>mocha</strong>. We lovingly invite our guests to grace the occasion
+            dressed within this warm, understated palette.
+          </div>
+          <div class="swatches">
+            <div class="sw"><i style="background:#f4e5cc"></i><span>Champagne</span></div>
+            <div class="sw"><i style="background:#e8d9b0"></i><span>Beige</span></div>
+            <div class="sw"><i style="background:#c9a86a"></i><span>Gold</span></div>
+            <div class="sw"><i style="background:#a0886a"></i><span>Taupe</span></div>
+            <div class="sw"><i style="background:#6a4a32"></i><span>Mocha</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SCENE 4 — Save the Date & RSVP
+       ═══════════════════════════════════════════════════════ -->
+  <div class="scene-page" data-scene="3">
+    <!-- Top ornament -->
+    <svg class="inv-ornament" viewBox="0 0 320 60" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M10 30 Q40 10 80 28" stroke="#c9a86a" stroke-width="1" fill="none" opacity=".7"/>
+      <path d="M20 30 Q35 18 55 26" stroke="#c9a86a" stroke-width=".7" fill="none" opacity=".5"/>
+      <circle cx="10" cy="30" r="2.5" fill="#c9a86a" opacity=".6"/>
+      <circle cx="30" cy="18" r="1.8" fill="#c9a86a" opacity=".5"/>
+      <circle cx="55" cy="22" r="2" fill="#c9a86a" opacity=".55"/>
+      <circle cx="80" cy="28" r="1.5" fill="#c9a86a" opacity=".5"/>
+      <path d="M130 30 L140 20 L150 30 L140 40 Z" stroke="#c9a86a" stroke-width=".8" fill="rgba(201,168,106,.12)" opacity=".8"/>
+      <path d="M150 30 L160 20 L170 30 L160 40 Z" stroke="#c9a86a" stroke-width=".8" fill="rgba(201,168,106,.12)" opacity=".8"/>
+      <circle cx="160" cy="30" r="3.5" fill="#c9a86a" opacity=".55"/>
+      <line x1="100" y1="30" x2="128" y2="30" stroke="#c9a86a" stroke-width=".8" opacity=".6"/>
+      <line x1="172" y1="30" x2="220" y2="30" stroke="#c9a86a" stroke-width=".8" opacity=".6"/>
+      <path d="M310 30 Q280 10 240 28" stroke="#c9a86a" stroke-width="1" fill="none" opacity=".7"/>
+      <path d="M300 30 Q285 18 265 26" stroke="#c9a86a" stroke-width=".7" fill="none" opacity=".5"/>
+      <circle cx="310" cy="30" r="2.5" fill="#c9a86a" opacity=".6"/>
+      <circle cx="290" cy="18" r="1.8" fill="#c9a86a" opacity=".5"/>
+      <circle cx="265" cy="22" r="2" fill="#c9a86a" opacity=".55"/>
+      <circle cx="240" cy="28" r="1.5" fill="#c9a86a" opacity=".5"/>
+    </svg>
+
+    <div class="inv-card">
+      <div class="inv-eyebrow">Mark Your Calendars</div>
+      <div class="inv-divider"><span class="diamond"></span></div>
+      <div class="inv-names" style="font-size:clamp(20px,3vw,38px);">Save the Date</div>
+      <div class="inv-divider"><span class="diamond"></span></div>
+      <div class="inv-verse">
+        With hearts full of joy, we joyfully invite you<br>
+        to witness and celebrate the union of
+      </div>
+      <div class="inv-names" style="font-size:clamp(18px,2.5vw,32px); margin-top:4px;">Prince <span class="ampersand">&amp;</span> Lyde</div>
+      <div class="inv-divider"><span class="diamond"></span></div>
+      <div class="inv-detail">[ Saturday, 00 Month 0000 ]</div>
+      <div class="inv-detail">[ Venue Name &mdash; City, Country ]</div>
+
+      <div class="rsvp-box">
+        <button type="button" class="rsvp-btn" id="rsvpBtn">Kindly RSVP</button>
+        <form class="rsvp-form" id="rsvpForm" action="YOUR_FORM_URL" method="get">
+          <label for="rsvpName">Full Name</label>
+          <input id="rsvpName" name="entry.123456789" type="text" required placeholder="Your name">
+          <label for="rsvpAttend">Will you attend?</label>
+          <select id="rsvpAttend" name="entry.987654321">
+            <option value="">— Select one —</option>
+            <option value="Joyfully accept">Joyfully accept</option>
+            <option value="Regretfully decline">Regretfully decline</option>
+          </select>
+          <label for="rsvpGuests">Number of guests</label>
+          <select id="rsvpGuests" name="entry.111111111">
+            <option value="1">1 guest</option>
+            <option value="2">2 guests</option>
+            <option value="3">3 guests</option>
+            <option value="4">4 guests</option>
+            <option value="5">5 or more</option>
+          </select>
+          <button type="submit" class="submit">Send RSVP</button>
+          <div class="msg" id="rsvpMsg">Opens our guest list form in a new tab.</div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Transition countdown indicator -->
+  <div id="tcount"><span class="ring"></span><span>Transitioning</span></div>
+
+  <!-- Edge arrows -->
+  <button class="arrow" id="arrowLeft" aria-label="Previous scene">
+    <svg viewBox="0 0 24 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <path d="M15 8 L7 20 L15 32"/>
+    </svg>
+  </button>
+  <button class="arrow" id="arrowRight" aria-label="Next scene">
+    <svg viewBox="0 0 24 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <path d="M9 8 L17 20 L9 32"/>
+    </svg>
+  </button>
+
+  <div id="counter">1 / 4</div>
+
+  <div id="hint">
+    <svg viewBox="0 0 14 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+      <rect x="1" y="1" width="12" height="18" rx="6"/>
+      <path d="M7 5 v4"/>
+    </svg>
+    <span>Scroll to travel</span>
+  </div>
+
+  <div id="vignette"></div>
+  <div id="grain"></div>
+</div>
+
+<div class="bar top"></div>
+<div class="bar bottom"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ============================================================
+   Config
+   ============================================================ */
+const SCENE_COUNT = 4;
+const AUTO_START = true;      // Show Scene One immediately on load (no click gate)
+const GATE_TIMEOUT = 5000;    // ms before the start gate auto-dismisses (if AUTO_START is false)
+const WATCHDOG_TIMEOUT = 8000; // ms without playback progress before a stalled transition resolves via crossfade
+const WATCHDOG_INTERVAL = 250; // watchdog poll rate (also detects the merge-lead window)
+const MERGE_LEAD_SECONDS = 1.5;  // start merging the next scene in this long before a clip ends
+
+// Per-scene metadata (informational — the visible text lives in each
+// .scene-page overlay markup below).
+const CAPTIONS = [
+  { scene: 'Invitation',        label: 'Prince & Lyde wedding' },
+  { scene: 'The Entourage',     label: 'Wedding party & sponsors' },
+  { scene: 'Attire & Motif',    label: 'Dress code & palette' },
+  { scene: 'Save the Date',     label: 'Date, place & RSVP' },
+];
+
+// Transition video files (muted, used as animation between scenes).
+// TransitionN-M.mp4 plays when moving from scene N -> M.
+const TRANSITIONS = [
+  // from scene 0 -> 1
+  { from: 0, to: 1, src: 'Assets/Transition1-2.mp4', fallback: 'crossfade' },
+  // from scene 1 -> 2
+  { from: 1, to: 2, src: 'Assets/Transition2-3.mp4', fallback: 'crossfade' },
+  // from scene 2 -> 3
+  { from: 2, to: 3, src: 'Assets/Transition3-4.mp4', fallback: 'crossfade' },
+];
+
+// Reverse transitions (for backward navigation) reuse the same clips by swapping direction.
+// When going from scene B -> A, we play the A->B clip flipped (mirrored) so motion reads naturally.
+// If you prefer distinct reverse clips, add them here keyed by [from,to].
+const REVERSE_MIRROR = true; // mirror the clip horizontally when going backward
+
+/* ============================================================
+   State
+   ============================================================ */
+const state = {
+  current: 0,            // currently displayed scene index
+  target: 0,             // scene we're heading to
+  started: false,        // experience dismissed (gate gone)
+  transitioning: false,  // a transition video is playing
+  locked: false,         // input locked during transition (optional)
+  fallbackMode: false,   // true if videos failed and we're crossfading
+  activeTransitionPair: null, // directed pair driving the current transition ('from,to')
+  activeVideo: null,     // the <video> currently driving the active transition
+  mergeStarted: false,   // true once the early merge has begun (last ~1s of a clip)
+};
+
+/* ============================================================
+   DOM refs
+   ============================================================ */
+const stage     = document.getElementById('stage');
+const gate      = document.getElementById('gate');
+const layers    = Array.from(document.querySelectorAll('.scene-layer'));
+const pages     = Array.from(document.querySelectorAll('.scene-page'));
+const imgs      = Array.from(document.querySelectorAll('.scene-bg'));
+const tcount    = document.getElementById('tcount');
+const counter   = document.getElementById('counter');
+const hint      = document.getElementById('hint');
+const arrowLeft = document.getElementById('arrowLeft');
+const arrowRight= document.getElementById('arrowRight');
+const video     = document.getElementById('transition');
+
+/* ============================================================
+   Preload scene images
+   ============================================================ */
+const imageCache = new Map();
+let loadedImages = 0;
+
+function preloadImages() {
+  return new Promise(resolve => {
+    imgs.forEach((img, i) => {
+      const src = img.getAttribute('data-src');
+      if (!src) { finishOne(); return; }
+      const el = new Image();
+      el.onload = el.onerror = () => { imageCache.set(src, el); finishOne(); };
+      el.src = src;
+    });
+    function finishOne() {
+      loadedImages++;
+      if (loadedImages >= SCENE_COUNT) resolve();
+    }
+  });
+}
+
+/* ============================================================
+   Render a scene (show layer + page + caption, hide others)
+   ============================================================ */
+function showScene(index, opts = {}) {
+  index = Math.max(0, Math.min(SCENE_COUNT - 1, index));
+  state.current = index;
+
+  // Always (re)point the visible scene's <img> at its asset — preload makes it
+  // instant, and the unconditional assignment means a scene is never left
+  // blank if its preload hadn't finished at the moment a transition ended.
+  layers.forEach(l => l.classList.remove('merge-anim'));
+  imgs.forEach((img, i) => {
+    const src = img.getAttribute('data-src');
+    if (i === index && src) img.src = src;
+  });
+
+  layers .forEach((l, i) => l.classList.toggle('active', i === index));
+  pages  .forEach((p, i) => p.classList.toggle('active', i === index));
+
+  counter.textContent = `${index + 1} / ${SCENE_COUNT}`;
+}
+
+// Re-trigger the named "merge" reveal on a layer (scale + dissolve in).
+function animateMergeIn(el) {
+  if (!el) return;
+  el.classList.remove('merge-anim');
+  void el.offsetWidth; // force reflow so the animation reliably restarts
+  el.classList.add('merge-anim');
+}
+
+// ---------- frozen last-frame overlay --------------------------------------
+// When a clip ends, browsers commonly revert the frame a <video> element
+// displays back to the FIRST frame / thumbnail while it's still fading out —
+// that flashes an irrelevant frame and ruins the tail of a transition.
+// To make the ending bulletproof we capture the TRUE last frame onto a canvas
+// at the instant 'ended' fires, hide the video element right away (so it can
+// never paint a reverted frame), and dissolve that frozen frame into the
+// scene that merges in underneath.
+let frozenFrameEl = null;
+let frozenFrameTimer = null;
+
+function clearFrozenFrame() {
+  if (frozenFrameTimer) { clearTimeout(frozenFrameTimer); frozenFrameTimer = null; }
+  if (frozenFrameEl) {
+    try { frozenFrameEl.remove(); } catch (e) { /* ignore */ }
+    frozenFrameEl = null;
+  }
+}
+
+// Capture the video's current (last) frame into a fullscreen canvas that
+// mirrors the video's exact geometry/transform. Returns the canvas, or null
+// if capture is impossible (then callers just hide the video and merge).
+function freezeLastFrame(vid) {
+  clearFrozenFrame();
+  if (!vid) return null;
+  const w = vid.videoWidth, h = vid.videoHeight;
+  if (!w || !h) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  canvas.style.position = 'fixed';
+  canvas.style.left = '0';
+  canvas.style.top = '0';
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.objectFit = 'cover';
+  canvas.style.pointerEvents = 'none';
+  canvas.style.zIndex = '13';
+  canvas.style.transform = vid.style.transform || ''; // keep mirror/zoom parity
+  try {
+    canvas.getContext('2d').drawImage(vid, 0, 0, w, h);
+  } catch (e) {
+    return null; // cross-origin / undecodable — caller falls back cleanly
+  }
+  document.body.appendChild(canvas);
+  frozenFrameEl = canvas;
+  return canvas;
+}
+
+// Fade the frozen-frame overlay out over `duration` seconds, then remove it.
+function fadeOutFrozenFrame(duration) {
+  if (!frozenFrameEl) return;
+  const el = frozenFrameEl;
+  el.style.transition = `opacity ${duration}s ease`;
+  el.style.opacity = '0';
+  frozenFrameTimer = setTimeout(() => {
+    if (frozenFrameEl === el) {
+      try { el.remove(); } catch (e) { /* ignore */ }
+      frozenFrameEl = null;
+    }
+  }, Math.round(duration * 1000) + 80);
+}
+
+/* ============================================================
+   Transition videos
+   ============================================================ */
+const videoTransitions = new Map(); // key "[from,to]" -> HTMLVideoElement (one pooled element per directed pair)
+
+function transitionKey(from, to) { return `${from},${to}`; }
+
+// ---- transition guards -----------------------------------------------------
+let transitionGen = 0;            // bumped every time the active transition is abandoned
+let watchdogTimer = null;         // stall watchdog interval handle
+let watchdogSince = 0;            // performance.now() when the watchdog armed
+let watchdogLastTime = 0;         // last currentTime the watchdog saw
+let transitionFallbackActive = false;
+
+function ensureVideo(from, to) {
+  const key = transitionKey(from, to);
+  if (videoTransitions.has(key)) return videoTransitions.get(key);
+  const v = document.createElement('video');
+  v.setAttribute('playsinline', '');
+  v.setAttribute('webkit-playsinline', '');
+  v.setAttribute('muted', '');
+  v.setAttribute('preload', 'auto');
+  // IMPORTANT: never display:none. A hidden element can't paint the transition
+  // and some browsers never fire 'ended' for it. Fade via opacity instead.
+  v.style.position = 'fixed';
+  v.style.left = '0';
+  v.style.top = '0';
+  v.style.width = '100%';
+  v.style.height = '100%';
+  v.style.objectFit = 'cover';
+  v.style.pointerEvents = 'none';
+  v.style.opacity = '0';
+  v.style.transition = 'opacity .4s ease';
+  v.style.visibility = 'hidden';   // pooled clips never paint unless actively showing
+  v.style.zIndex = '13';
+  v._failed = false;
+  v._handlersAttached = false;
+  attachTransitionListeners(v);
+  document.body.appendChild(v);
+  videoTransitions.set(key, v);
+  return v;
+}
+
+// Persistent per-element wiring. Every handler re-checks that this element is
+// the *currently active* transition before acting, so stale events from
+// abandoned pooled clips can never hijack the state machine.
+function attachTransitionListeners(v) {
+  if (v._handlersAttached) return;
+  v._handlersAttached = true;
+  v.addEventListener('ended', onTransitionVideoEnd);
+  v.addEventListener('error', onTransitionVideoError);
+  v.addEventListener('stalled', onTransitionVideoStalled);
+  v.addEventListener('waiting', onTransitionVideoStalled);
+}
+
+function getTransitionDef(from, to) {
+  // find the clip that matches the directed pair
+  const fwd = TRANSITIONS.find(t => t.from === from && t.to === to);
+  if (fwd) return fwd;
+  // backward: find the clip from -> to reversed
+  const rev = TRANSITIONS.find(t => t.from === to && t.to === from);
+  if (rev) {
+    // return a synthetic def that points at the same src but flags mirror
+    return { from: from, to: to, src: rev.src, fallback: rev.fallback, mirror: true };
+  }
+  return null;
+}
+
+function startTransition(from, to) {
+  clearFrozenFrame(); // remove any stale last-frame overlay before the next clip
+  if (from === to) {
+    finishTransition(to, transitionGen);
+    return;
+  }
+
+  const def = getTransitionDef(from, to);
+  if (!def || state.fallbackMode) {
+    doCrossfade(from, to);
+    return;
+  }
+
+  const gen = ++transitionGen;
+  state.target = to;
+  state.transitioning = true;
+  state.fallbackMode = false;
+  transitionFallbackActive = false;
+  state.activeTransitionPair = transitionKey(from, to);
+  updateControls();
+
+  const v = ensureVideo(from, to);
+  state.activeVideo = v;
+  v._failed = false;
+  v._retried = false;
+  v.loop = false;
+  v.muted = true;
+  v.preload = 'auto';
+  v.style.visibility = 'visible';
+  v.style.opacity = '0';
+  v.style.transition = 'opacity .5s ease, transform .7s ease';
+
+  // Only reassign the source when it actually changed (avoids mid-pool reload
+  // churn); always rewind so a reused clip never starts near its end.
+  if (v._srcSet !== def.src) {
+    v._srcSet = def.src;
+    v.src = def.src;
+    v.load();
+  }
+  if (v.readyState >= 2 && v.duration && v.currentTime > v.duration - 0.2) {
+    // near the end: park it back to the start
+  }
+  v.currentTime = 0;
+
+  // Mirror the clip when going backward so motion reads naturally; start it
+  // slightly zoomed so it "merges" into focus, then settle to full-frame.
+  v.style.transform = (def.mirror ? 'scaleX(-1) ' : '') + 'scale(1.05)';
+
+  const started = () => {
+    if (gen !== transitionGen) return; // this transition was superseded
+    v.style.opacity = '1';
+    v.style.transform = (def.mirror ? 'scaleX(-1)' : 'scale(1)');
+    tcount.style.display = 'flex';
+    armWatchdog(gen);
+  };
+
+  const failWith = (err) => {
+    if (gen !== transitionGen) return;
+    tcount.style.display = 'none';
+    v.style.opacity = '0';
+    console.error('Transition playback failed; using crossfade fallback:', err && err.message ? err.message : err);
+    if (!state.fallbackMode) state.fallbackMode = true; // don't retry clips next time
+    finishWithFallback(gen);
+  };
+
+  // Play. Modern browsers give us a promise; legacy ones need a 'canplay' wait.
+  let p;
+  try { p = v.play(); } catch (err) { p = new Promise((_, rej) => rej(err)); }
+
+  if (p && p.then) {
+    p.then(started).catch(err => {
+      if (gen !== transitionGen) return;
+      if (err && err.name === 'AbortError' && !v._retried) {
+        // Mid-load abort: recreate the source and retry exactly once.
+        v._retried = true;
+        v._srcSet = null;
+        v.removeAttribute('src');
+        v.load();
+        v._srcSet = def.src;
+        v.src = def.src;
+        v.load();
+        let p2;
+        try { p2 = v.play(); } catch (e2) { p2 = new Promise((_, rej) => rej(e2)); }
+        if (p2 && p2.then) p2.then(started).catch(failWith);
+        else v.addEventListener('canplay', () => { if (gen === transitionGen) started(); }, { once: true });
+      } else {
+        failWith(err);
+      }
+    });
+  } else {
+    // Legacy (pre-promise) API: start is signalled via 'canplay'.
+    if (v.readyState >= 2) { started(); }
+    else v.addEventListener('canplay', () => { if (gen === transitionGen) started(); }, { once: true });
+  }
+
+  // Hide the outgoing scene's page slightly early for a cleaner cut.
+  pages.forEach((p, i) => {
+    if (i === from) p.style.transition = 'opacity .5s ease';
+  });
+}
+
+// ---------- watchdog --------------------------------------------------------
+// Guarantees a transition NEVER hangs the UI. While a clip is the active
+// transition, we poll its playback position; if it makes no progress for
+// WATCHDOG_TIMEOUT ms (stalled, blocked, corrupt, unsupported), we resolve the
+// transition via crossfade instead of leaving the "Transitioning" state stuck.
+function armWatchdog(gen) {
+  disarmWatchdog();
+  const v = state.activeVideo;
+  watchdogLastTime = (v && v.currentTime) || 0;
+  watchdogSince = performance.now();
+  watchdogTimer = setInterval(() => {
+    if (gen !== transitionGen || !state.transitioning || !state.activeVideo) {
+      disarmWatchdog();
+      return;
+    }
+    const cur = state.activeVideo;
+    const t = cur.currentTime || 0;
+    const dur = cur.duration || 0;
+
+    // A little before the clip would finish, start merging the next scene in
+    // underneath while the clip fades out — the tail becomes a genuine blend.
+    if (dur && !state.mergeStarted && (dur - t) <= MERGE_LEAD_SECONDS) {
+      beginEarlyMerge(gen);
+      return; // beginEarlyMerge disarms the watchdog
+    }
+
+    if (t > watchdogLastTime + 0.05) {
+      watchdogLastTime = t;         // making progress — all good
+      return;
+    }
+    if (performance.now() - watchdogSince > WATCHDOG_TIMEOUT) {
+      console.error(`Transition watchdog: no playback progress for ${WATCHDOG_TIMEOUT / 1000}s; using crossfade fallback.`);
+      disarmWatchdog();
+      finishWithFallback(gen);
+    }
+  }, WATCHDOG_INTERVAL);
+}
+
+function disarmWatchdog() {
+  if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+}
+
+function isActiveTransition(v) {
+  return state.transitioning && state.activeVideo === v;
+}
+
+function onTransitionVideoEnd(ev) {
+  const v = ev.currentTarget;
+  if (!isActiveTransition(v)) return;
+  const gen = transitionGen;
+  disarmWatchdog();
+  if (state.mergeStarted) {
+    finalizeAfterMerge(gen); // clip already faded away via early merge
+  } else {
+    finishTransition(state.target, gen);
+  }
+}
+
+function onTransitionVideoError(ev) {
+  const v = ev.currentTarget;
+  if (!isActiveTransition(v)) return;
+  v._failed = true;
+  tcount.style.display = 'none';
+  v.style.opacity = '0';
+  console.error('Transition video error; using crossfade fallback.');
+  if (!state.fallbackMode) state.fallbackMode = true;
+  finishWithFallback(transitionGen);
+}
+
+function onTransitionVideoStalled(ev) {
+  if (!isActiveTransition(ev.currentTarget)) return;
+  tcount.style.display = 'flex'; // keep the ring visible while buffering
+}
+
+// Clean end of a transition: freeze the clip's TRUE last frame onto a canvas,
+// hide the video element instantly (so a browser reverted frame/thumbnail can
+// never flash), and dissolve that frozen frame into the scene that merges in
+// underneath — a perfectly fluid tail with no irrelevant frame.
+function finishTransition(to, gen) {
+  if (gen !== undefined && gen !== transitionGen) return; // stale event
+  disarmWatchdog();
+  const vid = state.activeVideo;
+  state.transitioning = false;
+  state.fallbackMode = false;
+  transitionFallbackActive = false;
+  state.activeTransitionPair = null;
+  state.activeVideo = null;
+  state.mergeStarted = false;
+  tcount.style.display = 'none';
+
+  // FREEZE the clip's true last frame the moment it ends, then hide the video
+  // immediately — the browser can never paint a reverting frame/thumbnail.
+  const frozen = freezeLastFrame(vid);
+
+  // Pre-hide every other pooled clip so no stray first frame can peek out.
+  videoTransitions.forEach(v => {
+    if (v !== vid) { v.pause(); v.style.opacity = '0'; v.style.transition = ''; v.style.visibility = 'hidden'; }
+  });
+  if (vid) {
+    try { vid.pause(); } catch (e) { /* ignore */ }
+    vid.style.transition = '';
+    vid.style.opacity = '0';
+    vid.style.visibility = 'hidden';
+  }
+
+  // Land the target scene and MERGE it in underneath the frozen frame.
+  state.target = to;
+  showScene(to, { hideCaption: false });
+  animateMergeIn(layers[to]);
+  updateControls();
+
+  // Dissolve the frozen last frame into the incoming scene.
+  if (frozen) fadeOutFrozenFrame(0.55);
+}
+
+// Called ~MERGE_LEAD_SECONDS before a clip ends: bring the target scene up
+// UNDERNEATH the still-playing clip and start fading the clip out — so the
+// last second of the video visibly dissolves into the next scene (a true
+// "merge transition" instead of a fade-freeze-cut).
+function beginEarlyMerge(gen) {
+  if (gen !== transitionGen || state.mergeStarted) return;
+  state.mergeStarted = true;
+  const v = state.activeVideo;
+  const to = state.target;
+
+  // Target scene shows through as the clip fades away.
+  showScene(to, { hideCaption: false });
+  animateMergeIn(layers[to]);
+  tcount.style.display = 'none';
+  updateControls();
+
+  if (v) {
+    // Fade the clip out over the full lead window so it's translucent / gone
+    // by the time 'ended' fires (which can revert the frame to the first
+    // frame — a fully faded clip hides that reverting frame instead of
+    // flashing it).
+    v.style.transition = `opacity ${Math.min(MERGE_LEAD_SECONDS, 1.45)}s ease`;
+    v.style.opacity = '0';
+  }
+  disarmWatchdog(); // fully committed to the merge
+
+  // Safety net: if the clip never fires 'ended' (rare stall/skip), finalize
+  // once it would have ended.
+  setTimeout(() => {
+    if (gen === transitionGen && state.transitioning && state.mergeStarted) {
+      finalizeAfterMerge(gen);
+    }
+  }, Math.round(MERGE_LEAD_SECONDS * 1000) + 800);
+}
+
+// Clean finalize for the early-merge path — the clip is already invisible, so
+// no last-frame freeze/overlay is needed.
+function finalizeAfterMerge(gen) {
+  if (gen !== transitionGen) return;
+  const to = state.target;
+  state.transitioning = false;
+  state.fallbackMode = false;
+  transitionFallbackActive = false;
+  state.activeTransitionPair = null;
+  state.activeVideo = null;
+  state.mergeStarted = false;
+  tcount.style.display = 'none';
+  videoTransitions.forEach(v => { v.pause(); v.style.opacity = '0'; v.style.transition = ''; v.style.visibility = 'hidden'; });
+  const layer = layers[to];
+  if (layer) { layer.classList.remove('merge-anim'); layer.style.transform = ''; }
+  state.target = to;
+  showScene(to, { hideCaption: false });
+  updateControls();
+}
+
+// Fail the active clip and resolve the transition via crossfade.
+function finishWithFallback(gen) {
+  if (gen !== transitionGen) return;
+  const from = state.current;
+  const to = state.target;
+  disarmWatchdog();
+  state.transitioning = false;
+  state.fallbackMode = true;
+  transitionFallbackActive = true;
+  state.activeVideo = null;
+  state.mergeStarted = false;
+  tcount.style.display = 'none';
+  videoTransitions.forEach(v => { v.pause(); v.style.opacity = '0'; v.style.visibility = 'hidden'; });
+  doCrossfade(from, to);
+}
+
+// Abandon whatever is playing (used when restarting / resetting).
+function abortTransition() {
+  transitionGen++;
+  disarmWatchdog();
+  clearFrozenFrame();
+  state.transitioning = false;
+  state.activeTransitionPair = null;
+  state.activeVideo = null;
+  state.mergeStarted = false;
+  tcount.style.display = 'none';
+  videoTransitions.forEach(v => { v.pause(); v.style.opacity = '0'; v.style.visibility = 'hidden'; });
+  updateControls();
+}
+
+/* ============================================================
+   CSS crossfade fallback (when videos can't play)
+   ============================================================ */
+let crossfadeActive = false;
+let crossfadeGen = 0;
+
+function doCrossfade(from, to) {
+  clearFrozenFrame(); // never leave a frozen frame over a crossfade
+  const cg = ++crossfadeGen;
+  disarmWatchdog();
+  state.target = to;
+  state.transitioning = true;
+  transitionFallbackActive = true;
+  crossfadeActive = true;
+  updateControls();
+
+  const fromLayer = layers[from];
+  const toLayer  = layers[to];
+  const fromPage  = pages[from];
+  const toPage    = pages[to];
+
+  // Ensure target image loaded (assigned unconditionally — never a blank layer)
+  const src = imgs[to].getAttribute('data-src');
+  if (src) imgs[to].src = src;
+
+  toLayer.style.opacity = '0';
+  toLayer.classList.add('active');
+  toPage.classList.add('active');
+  toPage.style.opacity = '0';
+
+  requestAnimationFrame(() => {
+    animateMergeIn(toLayer); // keep the same cinematic "merge" feel as the video path
+    fromLayer.style.transition = 'opacity .8s ease';
+    toLayer.style.transition  = 'opacity .8s ease';
+    fromPage.style.transition = 'opacity .8s ease';
+    toPage.style.transition   = 'opacity .8s ease';
+
+    fromLayer.style.opacity = '0';
+    toLayer.style.opacity = '1';
+    fromPage.style.opacity = '0';
+    toPage.style.opacity = '1';
+
+    setTimeout(() => {
+      if (cg !== crossfadeGen) return; // superseded by a newer transition
+      fromLayer.classList.remove('active');
+      fromPage.classList.remove('active');
+      fromLayer.style.transition = '';
+      toLayer.style.transition = '';
+      fromPage.style.transition = '';
+      toPage.style.transition = '';
+      crossfadeActive = false;
+      state.transitioning = false;
+      transitionFallbackActive = false;
+      state.activeTransitionPair = null;
+      state.activeVideo = null;
+      tcount.style.display = 'none';
+      toLayer.classList.remove('merge-anim');
+      toLayer.style.transform = '';
+      videoTransitions.forEach(v => { v.pause(); v.style.opacity = '0'; v.style.visibility = 'hidden'; });
+      showScene(to, { hideCaption: false });
+      updateControls();
+    }, 900);
+  });
+}
+
+/* ============================================================
+   Navigation
+   ============================================================ */
+function goTo(index) {
+  if (!state.started) return;
+  index = Math.max(0, Math.min(SCENE_COUNT - 1, index));
+
+  const from = state.current;
+  if (index === from) return;
+
+  if (state.transitioning) {
+    // Chaining: retarget the ongoing clip. Its stale events are discarded by
+    // the generation check, and its (or the watchdog's) finish takes us to the
+    // newly requested scene.
+    state.target = index;
+    if (state.mergeStarted) {
+      // Retarget the scene that's already merging in underneath the fading clip.
+      showScene(index, { hideCaption: false });
+      animateMergeIn(layers[index]);
+    }
+    updateControls();
+    return;
+  }
+
+  state.target = index;
+  const def = getTransitionDef(from, index);
+  if (def && !state.fallbackMode) {
+    startTransition(from, index);
+  } else {
+    doCrossfade(from, index);
+  }
+}
+
+function next() { goTo(state.current + 1); }
+function prev() { goTo(state.current - 1); }
+
+/* ============================================================
+   Controls UI state
+   ============================================================ */
+function updateControls() {
+  counter.textContent = `${state.current + 1} / ${SCENE_COUNT}`;
+
+  // Arrows
+  arrowLeft.classList.toggle('disabled', state.current === 0 || state.transitioning);
+  arrowRight.classList.toggle('disabled', state.current === SCENE_COUNT - 1 || state.transitioning);
+
+  // Hint
+  hint.classList.toggle('fade', state.transitioning);
+
+  // Countdown
+  tcount.style.display = state.transitioning ? 'flex' : 'none';
+
+  // If fallback mode, hide tcount ring
+  if (state.fallbackMode) tcount.style.display = 'none';
+}
+
+/* ============================================================
+   Pointer / keyboard / scroll / swipe
+   ============================================================ */
+let pointerDownX = 0, pointerDownY = 0, pointerDownT = 0, pointerActive = false;
+
+stage.addEventListener('pointerdown', (e) => {
+  if (!state.started) return;
+  pointerDownX = e.clientX;
+  pointerDownY = e.clientY;
+  pointerDownT = performance.now();
+  pointerActive = true;
+});
+stage.addEventListener('pointerup', (e) => {
+  if (!state.started || !pointerActive) return;
+  pointerActive = false;
+  const dt = performance.now() - pointerDownT;
+  if (dt > 400) return; // treat long press as nothing
+  const dx = e.clientX - pointerDownX;
+  const dy = e.clientY - pointerDownY;
+  const adx = Math.abs(dx), ady = Math.abs(dy);
+  // Tap (no real movement) -> advance forward one scene
+  if (adx < 8 && ady < 8) {
+    next();
+    return;
+  }
+  // Swipe
+  if (adx > ady && adx > 40) {
+    if (dx < 0) next(); else prev();
+  } else if (ady > adx && ady > 40) {
+    if (dy < 0) next(); else prev();
+  }
+});
+stage.addEventListener('click', (e) => {
+  // Click handled by tap logic above (pointerup). Keep empty to avoid double-firing.
+});
+
+// Keyboard
+window.addEventListener('keydown', (e) => {
+  if (!state.started) {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      startExperience();
+    }
+    return;
+  }
+  if (state.transitioning) {
+    // Space/arrows during transition -> skip to next/prev target
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+      e.preventDefault();
+      if (state.current < SCENE_COUNT - 1) goTo(state.current + 1);
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (state.current > 0) goTo(state.current - 1);
+    }
+    return;
+  }
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+    e.preventDefault();
+    next();
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    prev();
+  } else if (e.key === 'Home') {
+    e.preventDefault();
+    goTo(0);
+  } else if (e.key === 'End') {
+    e.preventDefault();
+    goTo(SCENE_COUNT - 1);
+  }
+});
+
+// Edge buttons
+arrowLeft.addEventListener('click', (e) => { e.stopPropagation(); if (!state.started) { startExperience(); return; } prev(); });
+arrowRight.addEventListener('click', (e) => { e.stopPropagation(); if (!state.started) { startExperience(); return; } next(); });
+
+// Scroll / wheel
+let wheelAccum = 0;
+stage.addEventListener('wheel', (e) => {
+  if (!state.started) { startExperience(); return; }
+  if (state.transitioning) {
+    // During transition, a strong scroll in either direction skips to next/prev.
+    if (Math.abs(e.deltaY) > 20 || Math.abs(e.deltaX) > 20) {
+      if (e.deltaY < 0 || e.deltaX < 0) {
+        if (state.current < SCENE_COUNT - 1) goTo(state.current + 1);
+      } else {
+        if (state.current > 0) goTo(state.current - 1);
+      }
+    }
+    e.preventDefault();
+    return;
+  }
+  wheelAccum += e.deltaY;
+  if (Math.abs(wheelAccum) > 30) {
+    if (wheelAccum < 0) { if (state.current < SCENE_COUNT - 1) goTo(state.current + 1); }
+    else { if (state.current > 0) goTo(state.current - 1); }
+    wheelAccum = 0;
+    e.preventDefault();
+  }
+}, { passive: false });
+
+/* ============================================================
+   Start / auto-start
+   ============================================================ */
+function startExperience() {
+  if (state.started) return;
+  state.started = true;
+  gate.classList.add('hidden');
+  hint.classList.remove('fade');
+  updateControls();
+  // Preload transition clips now that playback is allowed.
+  preloadTransitions().then(() => {
+    console.log('All transition clips ready.');
+  }).catch(() => {
+    // Non-fatal: individual clips still attempt on use.
+  });
+}
+
+function preloadTransitions() {
+  return Promise.all(TRANSITIONS.map(def => {
+    const v = ensureVideo(def.from, def.to);
+    if (v._srcSet === def.src && v.readyState >= 2) return Promise.resolve();
+    v._srcSet = def.src;
+    v.src = def.src;
+    return new Promise(resolve => {
+      if (v.readyState >= 2) { v.pause(); resolve(); return; }
+      const done = () => { v.pause(); resolve(); };
+      v.addEventListener('loadeddata', done, { once: true });
+      v.addEventListener('canplaythrough', done, { once: true });
+      v.addEventListener('error', () => resolve(), { once: true });
+      v.addEventListener('stalled', () => resolve(), { once: true });
+      setTimeout(resolve, 3000); // never block on a slow clip
+      v.load();
+    });
+  }));
+}
+
+gate.addEventListener('click', startExperience);
+gate.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startExperience(); }
+});
+
+/* ============================================================
+   RSVP (scene 4) — toggle the inline form and submit to Google Forms
+   ============================================================ */
+function setupRsvp() {
+  const rsvpBtn  = document.getElementById('rsvpBtn');
+  const rsvpForm = document.getElementById('rsvpForm');
+  if (!rsvpBtn || !rsvpForm) return;
+
+  rsvpBtn.addEventListener('click', () => {
+    rsvpForm.classList.toggle('open');
+  });
+
+  rsvpForm.addEventListener('submit', (e) => {
+    const url = rsvpForm.getAttribute('action');
+    if (!url || url === 'YOUR_FORM_URL') {
+      e.preventDefault();
+      rsvpBtn.classList.toggle('disabled');
+      const msg = document.getElementById('rsvpMsg');
+      if (msg) msg.textContent = 'Guest list link not set yet — replace YOUR_FORM_URL to enable.';
+      rsvpForm.classList.remove('open');
+      return;
+    }
+    // Google Forms handles the submit; no interception needed.
+  });
+}
+
+/* ============================================================
+   Init
+   ============================================================ */
+async function init() {
+  setupRsvp();
+
+  // Show Scene One immediately (no blank screen): assign its real src now —
+  // the browser paints it as soon as it has decoded enough, while the rest of
+  // the images preload in the background.
+  const src0 = imgs[0].getAttribute('data-src');
+  if (src0) imgs[0].src = src0;
+  showScene(0, { hideCaption: true });
+  animateMergeIn(layers[0]); // gentle "merge" reveal on load
+  updateControls();
+
+  if (AUTO_START) {
+    // Skip the click gate entirely — Scene One is already on screen.
+    startExperience();
+    // Swap in the fully decoded first image once it's cached.
+    preloadImages().then(() => {
+      const s = imgs[0].getAttribute('data-src');
+      if (imageCache.has(s)) imgs[0].src = s;
+    });
+  } else {
+    await preloadImages();
+    setTimeout(() => { if (!state.started) startExperience(); }, GATE_TIMEOUT);
+  }
+}
+
+init().catch(err => {
+  console.error('Init failed:', err);
+});
+})();
+</script>
+</body>
+</html>
